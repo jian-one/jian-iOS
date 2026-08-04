@@ -36,6 +36,7 @@ final class TerminalSocket {
     private var onInitialReplayComplete: (() -> Void)?
     private var pendingOutput: [String] = []
     private var replayGate = TerminalReplayGate()
+    private var lastResize: (cols: Int, rows: Int)?
 
     init(client: UltimationClient) {
         self.client = client
@@ -71,14 +72,24 @@ final class TerminalSocket {
         receiveTask = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        lastResize = nil
         if state == .connecting || state == .connected {
             state = .idle
         }
     }
 
     func sendInput(_ text: String) {
+        var containsEnter = false
         for chunk in text.chunks(maxUTF8Bytes: Self.maximumInputPayloadBytes) {
             send(["type": "input", "data": chunk])
+            containsEnter = containsEnter || chunk.utf8.contains { $0 == 0x0D || $0 == 0x0A }
+        }
+
+        if containsEnter, let lastResize {
+            // A remote client may have cleared its terminal without changing
+            // the iOS view bounds. Re-send the current PTY size after Enter
+            // so the remote terminal catches up on the next command.
+            sendResize(cols: lastResize.cols, rows: lastResize.rows)
         }
     }
 
@@ -88,6 +99,7 @@ final class TerminalSocket {
 
     func sendResize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
+        lastResize = (cols, rows)
         send(["type": "resize", "cols": cols, "rows": rows])
     }
 

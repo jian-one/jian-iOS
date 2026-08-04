@@ -224,6 +224,7 @@ final class UltimationTerminalView: TerminalView, TerminalViewDelegate, UIGestur
             }
             displayRange = clamped
             layoutIfNeeded()
+            refreshTerminalSize()
 
             if let anchorLine {
                 let lineOffset = max(0, anchorLine - clamped.lowerBound)
@@ -238,6 +239,17 @@ final class UltimationTerminalView: TerminalView, TerminalViewDelegate, UIGestur
             needsLatestRefresh = false
             rebuildWindow(latestWindowRange(), anchorLine: nil)
         }
+    }
+
+    private func refreshTerminalSize() {
+        let terminal = getTerminal()
+        guard terminal.cols > 0, terminal.rows > 0 else { return }
+
+        // Rebuilding the local buffer (for example after `clear`) does not
+        // change the view bounds, so SwiftTerm's layout hook does not emit a
+        // sizeChanged callback. Force the callback so the remote PTY is
+        // resized to the current on-screen terminal dimensions as well.
+        resize(cols: terminal.cols, rows: terminal.rows)
     }
 
     private func prepareTerminalForWindow() {
