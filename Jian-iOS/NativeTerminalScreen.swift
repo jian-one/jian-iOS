@@ -11,11 +11,12 @@ struct NativeTerminalScreen: View {
     @State private var isRestarting = false
     @State private var isReleasing = false
     @State private var refreshRequest = 0
+    @AppStorage("terminalFontSize") private var fontSize = 12.0
 
     var body: some View {
         Group {
             if let socket {
-                NativeTerminalView(socket: socket, refreshRequest: refreshRequest)
+                NativeTerminalView(socket: socket, refreshRequest: refreshRequest, fontSize: CGFloat(fontSize))
             } else {
                 ProgressView("正在建立终端")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -26,6 +27,10 @@ struct NativeTerminalScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Stepper(value: $fontSize, in: 10...24, step: 1) {
+                        Text("字号 \(Int(fontSize))")
+                    }
+
                     Button {
                         refreshRequest &+= 1
                     } label: {
@@ -108,6 +113,7 @@ struct NativeTerminalScreen: View {
 struct NativeTerminalView: UIViewRepresentable {
     let socket: TerminalSocket
     let refreshRequest: Int
+    let fontSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator(socket: socket)
@@ -115,6 +121,7 @@ struct NativeTerminalView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> RefreshableTerminalView {
         let view = RefreshableTerminalView(frame: .zero)
+        view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         view.terminalDelegate = context.coordinator
         context.coordinator.view = view
         context.coordinator.lastRefreshRequest = refreshRequest
@@ -126,6 +133,9 @@ struct NativeTerminalView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: RefreshableTerminalView, context: Context) {
+        if uiView.font.pointSize != fontSize {
+            uiView.font = uiView.font.withSize(fontSize)
+        }
         guard context.coordinator.lastRefreshRequest != refreshRequest else { return }
         context.coordinator.lastRefreshRequest = refreshRequest
         uiView.refreshCurrentBuffer()
