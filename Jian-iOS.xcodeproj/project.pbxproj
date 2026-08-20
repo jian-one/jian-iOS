@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		EC8EA340301C5000006AA7EF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = EC8EA33F301C5000006AA7EF /* SwiftTerm */; };
+		EC8EA341301C5000006AA7EF /* YSwift in Frameworks */ = {isa = PBXBuildFile; productRef = EC8EA342301C5000006AA7EF /* YSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EC8EA340301C5000006AA7EF /* SwiftTerm in Frameworks */,
+				EC8EA341301C5000006AA7EF /* YSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = "Jian-iOS";
 			packageProductDependencies = (
 				EC8EA33F301C5000006AA7EF /* SwiftTerm */,
+				EC8EA342301C5000006AA7EF /* YSwift */,
 			);
 			productName = "Jian-iOS";
 			productReference = EC8EA32C301C3E8E006AA7EF /* Jian-iOS.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				EC8EA33E301C5000006AA7EF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				EC8EA343301C5000006AA7EF /* XCRemoteSwiftPackageReference "yswift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EC8EA32D301C3E8E006AA7EF /* Products */;
@@ -366,6 +370,14 @@
 				minimumVersion = 1.15.0;
 			};
 		};
+		EC8EA343301C5000006AA7EF /* XCRemoteSwiftPackageReference "yswift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/y-crdt/yswift";
+			requirement = {
+				kind = exactVersion;
+				version = 0.2.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -373,6 +385,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EC8EA33E301C5000006AA7EF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		EC8EA342301C5000006AA7EF /* YSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EC8EA343301C5000006AA7EF /* XCRemoteSwiftPackageReference "yswift" */;
+			productName = YSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

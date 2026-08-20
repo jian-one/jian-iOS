@@ -6,16 +6,17 @@ final class AppModel {
     let client = UltimationClient()
 
     var username: String?
-    var selectedKind: AgentKind = .codex
+    var selectedKind: AgentKind = .local
     var selectedProfile = UserDefaults.standard.string(forKey: "jian.hermes_profile")
         ?? UserDefaults.standard.string(forKey: "terminalme.hermes_profile")
         ?? "default" {
         didSet { UserDefaults.standard.set(selectedProfile, forKey: "jian.hermes_profile") }
     }
     var selectedWorkspace = UserDefaults.standard.string(forKey: "jian.codex_workspace") ?? "" {
-        didSet { UserDefaults.standard.set(selectedWorkspace, forKey: "jian.codex_workspace") }
+        didSet { saveWorkspace(selectedWorkspace, for: .codex) }
     }
     var profiles: [String] = ["default"]
+    var agentSettings: AgentSettings?
     var sessions: [AgentSession] = []
     var authState: LoadState<String?> = .idle
     var sessionsState: LoadState<[AgentSession]> = .idle
@@ -37,7 +38,8 @@ final class AppModel {
             .filter { $0.kind == .codex }
             .map { $0.workspace.trimmingCharacters(in: .whitespacesAndNewlines) }
             .map { $0.isEmpty ? "未知工作区" : $0 }
-        return Array(Set(values)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let remembered = lastWorkspace(for: .codex).map { [$0] } ?? []
+        return Array(Set(values + remembered)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     func bootstrap() async {
@@ -47,6 +49,7 @@ final class AppModel {
             username = status.authenticated ? status.username : nil
             authState = .loaded(username)
             if username != nil {
+                await loadAgentSettings()
                 await loadProfilesIfNeeded()
                 await loadSessions()
             }
@@ -61,6 +64,7 @@ final class AppModel {
         self.username = response.username
         authState = .loaded(response.username)
         await loadProfilesIfNeeded()
+        await loadAgentSettings()
         await loadSessions()
     }
 
@@ -77,7 +81,10 @@ final class AppModel {
         if kind == .hermes {
             await loadProfilesIfNeeded()
         }
-        await loadSessions()
+        await loadSessions(refreshNative: false)
+        if kind == .codex {
+            selectedWorkspace = lastWorkspace(for: .codex) ?? recentWorkspace() ?? ""
+        }
     }
 
     func loadProfilesIfNeeded() async {
@@ -93,18 +100,22 @@ final class AppModel {
         }
     }
 
-    /// The backend refreshes its native catalog as part of the list endpoint.
-    /// Keep the argument for callers that distinguish pull-to-refresh from an
-    /// ordinary load, but use the single current endpoint for both.
-    func loadSessions(refreshNative _: Bool = false) async {
+    /// The app keeps a local snapshot for fast startup. Ordinary loads then
+    /// read the server's in-memory snapshot, while an explicit refresh asks
+    /// the backend to rediscover native sessions.
+    func loadSessions(refreshNative: Bool = false) async {
         guard username != nil else { return }
+
+        if !refreshNative, let cached = cachedSessions(for: selectedKind) {
+            merge(cached)
+            sessionsState = .loaded(visibleSessions)
+        }
+
         sessionsState = .loading
         do {
-            let loaded = try await client.sessions(kind: selectedKind)
+            let loaded = try await client.sessions(kind: selectedKind, refreshNative: refreshNative)
             merge(loaded)
-            if selectedKind == .codex {
-                selectFirstWorkspaceIfNeeded()
-            }
+            saveCachedSessions(loaded, for: selectedKind)
             sessionsState = .loaded(visibleSessions)
         } catch UltimationError.unauthenticated {
             username = nil
@@ -117,22 +128,36 @@ final class AppModel {
     func createSession(workspace: String, yolo: Bool = false) async throws -> AgentSession {
         let session = try await client.createSession(kind: selectedKind, workspace: workspace, profile: selectedProfile, yolo: yolo)
         upsert(session)
-        if selectedKind == .codex {
-            selectedWorkspace = normalizedWorkspace(session.workspace)
-        }
+        saveCachedSessions(sessions.filter { $0.kind == session.kind }, for: session.kind)
+        rememberWorkspace(session.workspace, for: session.kind)
+        if selectedKind == .codex { selectedWorkspace = normalizedWorkspace(session.workspace) }
         return session
+    }
+
+    func lastWorkspace(for kind: AgentKind) -> String? {
+        let key = workspaceKey(for: kind)
+        let value = UserDefaults.standard.string(forKey: key)
+            ?? (kind == .codex ? UserDefaults.standard.string(forKey: "jian.codex_workspace") : nil)
+        let workspace = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return workspace.isEmpty ? nil : workspace
     }
 
     func stop(_ session: AgentSession) async throws {
         try await client.stop(kind: session.kind, sessionID: session.id)
     }
 
+    func restart(_ session: AgentSession) async throws {
+        try await client.restartTerminal(sessionID: session.id)
+    }
+
+    func release(_ session: AgentSession) async throws {
+        try await client.releaseTerminal(sessionID: session.id)
+    }
+
     func delete(_ session: AgentSession) async throws {
         try await client.delete(kind: session.kind, sessionID: session.id)
         sessions.removeAll { $0.kind == session.kind && $0.id == session.id }
-        if selectedKind == .codex && session.kind == .codex {
-            selectFirstWorkspaceIfNeeded()
-        }
+        saveCachedSessions(sessions.filter { $0.kind == session.kind }, for: session.kind)
     }
 
     private func merge(_ loaded: [AgentSession]) {
@@ -153,21 +178,71 @@ final class AppModel {
             return selectedWorkspace.isEmpty || normalizedWorkspace(session.workspace) == selectedWorkspace
         case .local:
             return true
+        case .pi:
+            return true
         }
     }
 
-    private func selectFirstWorkspaceIfNeeded() {
-        guard !workspaces.isEmpty else {
-            selectedWorkspace = ""
-            return
+    func isEnabled(_ kind: AgentKind) -> Bool {
+        switch kind {
+        case .local: true
+        case .codex: agentSettings?.codexEnabled ?? true
+        case .hermes: agentSettings?.hermesEnabled ?? true
+        case .pi: agentSettings?.piEnabled ?? true
         }
-        if !workspaces.contains(selectedWorkspace) {
-            selectedWorkspace = workspaces[0]
+    }
+
+    func loadAgentSettings() async {
+        guard username != nil else { return }
+        if let response = try? await client.settings() {
+            agentSettings = response.settings
         }
+    }
+
+    private func recentWorkspace() -> String? {
+        guard let recent = sessions
+            .filter({ $0.kind == .codex })
+            .max(by: { $0.lastActivity < $1.lastActivity })
+        else { return nil }
+        return normalizedWorkspace(recent.workspace)
     }
 
     private func normalizedWorkspace(_ workspace: String) -> String {
         let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? "未知工作区" : value
+    }
+
+    private func cacheKey(for kind: AgentKind) -> String {
+        "jian.session_cache.\(username ?? "anonymous").\(kind.rawValue)"
+    }
+
+    private func cachedSessions(for kind: AgentKind) -> [AgentSession]? {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey(for: kind)) else { return nil }
+        return try? JSONDecoder().decode([AgentSession].self, from: data)
+    }
+
+    private func saveCachedSessions(_ value: [AgentSession], for kind: AgentKind) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        UserDefaults.standard.set(data, forKey: cacheKey(for: kind))
+    }
+
+    private func workspaceKey(for kind: AgentKind) -> String {
+        "jian.last_workspace.\(username ?? "anonymous").\(kind.rawValue)"
+    }
+
+    private func rememberWorkspace(_ workspace: String, for kind: AgentKind) {
+        let workspace = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workspace.isEmpty else { return }
+        UserDefaults.standard.set(workspace, forKey: workspaceKey(for: kind))
+    }
+
+    private func saveWorkspace(_ workspace: String, for kind: AgentKind) {
+        guard username != nil else { return }
+        let workspace = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        if workspace.isEmpty {
+            UserDefaults.standard.removeObject(forKey: workspaceKey(for: kind))
+        } else {
+            UserDefaults.standard.set(workspace, forKey: workspaceKey(for: kind))
+        }
     }
 }

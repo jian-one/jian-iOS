@@ -3,9 +3,11 @@ import UIKit
 
 struct TerminalScreen: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.dismiss) private var dismiss
     let session: AgentSession
     @State private var socket: TerminalSocket?
     @State private var errorMessage = ""
+    @State private var isReleasing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,20 +32,47 @@ struct TerminalScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await stop() }
+                Menu {
+                    Button {
+                        socket?.reconnect()
+                    } label: {
+                        Label("刷新会话", systemImage: "arrow.clockwise")
+                    }
+
+                    Button {
+                        Task { await restart() }
+                    } label: {
+                        Label("重启会话", systemImage: "arrow.triangle.2.circlepath")
+                    }
+
+                    Button(role: .destructive) {
+                        Task { await release() }
+                    } label: {
+                        Label("释放会话", systemImage: "xmark.circle")
+                    }
+                    .disabled(isReleasing)
+
+                    Divider()
+
+                    Button {
+                        Task { await stop() }
+                    } label: {
+                        Label("停止会话", systemImage: "stop.fill")
+                    }
                 } label: {
-                    Label("停止", systemImage: "stop.fill")
+                    Label("终端操作", systemImage: "ellipsis")
                 }
+                .disabled(socket == nil)
             }
         }
-        .task(id: session.id) {
+        .onAppear {
             let next = TerminalSocket(client: appModel.client)
             socket = next
             next.connect(kind: session.kind, sessionID: session.id)
         }
         .onDisappear {
             socket?.disconnect()
+            socket = nil
         }
     }
 
@@ -52,6 +81,29 @@ struct TerminalScreen: View {
             try await appModel.stop(session)
             socket?.sendInterrupt()
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restart() async {
+        do {
+            socket?.disconnect()
+            try await appModel.restart(session)
+            socket?.reconnect()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func release() async {
+        guard !isReleasing else { return }
+        isReleasing = true
+        socket?.disconnect()
+        do {
+            try await appModel.release(session)
+            dismiss()
+        } catch {
+            isReleasing = false
             errorMessage = error.localizedDescription
         }
     }

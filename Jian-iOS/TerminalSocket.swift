@@ -37,6 +37,8 @@ final class TerminalSocket {
     private var pendingOutput: [String] = []
     private var replayGate = TerminalReplayGate()
     private var lastResize: (cols: Int, rows: Int)?
+    private var connectionKind: AgentKind?
+    private var connectionSessionID: String?
 
     init(client: UltimationClient) {
         self.client = client
@@ -44,6 +46,8 @@ final class TerminalSocket {
 
     func connect(kind: AgentKind, sessionID: String) {
         disconnect()
+        connectionKind = kind
+        connectionSessionID = sessionID
         replayGate.reset()
         state = .connecting
         do {
@@ -76,6 +80,11 @@ final class TerminalSocket {
         if state == .connecting || state == .connected {
             state = .idle
         }
+    }
+
+    func reconnect() {
+        guard let connectionKind, let connectionSessionID else { return }
+        connect(kind: connectionKind, sessionID: connectionSessionID)
     }
 
     func sendInput(_ text: String) {

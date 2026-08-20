@@ -5,14 +5,13 @@ struct SessionsView: View {
     let kind: AgentKind
     @State private var showingNewSession = false
     @State private var errorMessage = ""
-    @State private var testSession: AgentSession?
-    @State private var isOpeningTestSession = false
+    @State private var selectedSession: AgentSession?
 
     var body: some View {
         NavigationStack {
             List {
                 if kind == .hermes {
-                    Section("Profile") {
+                    Section {
                         Picker("Profile", selection: profileBinding) {
                             ForEach(appModel.profiles, id: \.self) { profile in
                                 Text(profile).tag(profile)
@@ -22,29 +21,12 @@ struct SessionsView: View {
                 }
 
                 if kind == .codex {
-                    Section("工作目录") {
+                    Section {
                         Picker("工作目录", selection: workspaceBinding) {
                             ForEach(appModel.workspaces, id: \.self) { workspace in
                                 Text(workspace).tag(workspace)
                             }
                         }
-                    }
-                }
-
-                if kind == .local {
-                    Section("SwiftTerm") {
-                        Button {
-                            Task { await openTestBash() }
-                        } label: {
-                            HStack {
-                                Label("Local Bash", systemImage: "terminal")
-                                Spacer()
-                                if isOpeningTestSession {
-                                    ProgressView()
-                                }
-                            }
-                        }
-                        .disabled(isOpeningTestSession)
                     }
                 }
 
@@ -78,13 +60,13 @@ struct SessionsView: View {
             .navigationDestination(for: AgentSession.self) { session in
                 NativeTerminalScreen(session: session)
             }
-            .navigationDestination(item: $testSession) { session in
+            .navigationDestination(item: $selectedSession) { session in
                 NativeTerminalScreen(session: session)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        Task { await appModel.loadSessions(refreshNative: kind != .local) }
+                        Task { await appModel.loadSessions(refreshNative: true) }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
@@ -98,13 +80,15 @@ struct SessionsView: View {
                 }
             }
             .sheet(isPresented: $showingNewSession) {
-                NewSessionView(kind: kind)
+                NewSessionView(kind: kind) { session in
+                    selectedSession = session
+                }
             }
             .task(id: kind) {
                 await appModel.select(kind: kind)
             }
             .refreshable {
-                await appModel.loadSessions(refreshNative: kind != .local)
+                await appModel.loadSessions(refreshNative: true)
             }
         }
     }
@@ -142,16 +126,6 @@ struct SessionsView: View {
         }
     }
 
-    private func openTestBash() async {
-        isOpeningTestSession = true
-        errorMessage = ""
-        do {
-            testSession = try await appModel.createSession(workspace: "~")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isOpeningTestSession = false
-    }
 }
 
 struct SessionRow: View {

@@ -70,9 +70,44 @@ final class UltimationClient {
         try await request("/hermes/profiles")
     }
 
-    func sessions(kind: AgentKind) async throws -> [AgentSession] {
+    func settings() async throws -> SettingsResponse {
+        try await request("/settings")
+    }
+
+    func saveSettings(_ settings: AgentSettings) async throws -> AgentSettings {
+        try await request("/settings", method: "PUT", body: settings)
+    }
+
+    func quickNote() async throws -> QuickNoteResponse {
+        try await request("/quick-note")
+    }
+
+    func saveQuickNote(update: String) async throws {
+        let _: EmptyResponse = try await request(
+            "/quick-note",
+            method: "PUT",
+            body: QuickNoteUpdate(update: update)
+        )
+    }
+
+    func apiWebsocketURL() throws -> URL {
+        guard var components = URLComponents(url: try normalizedBaseURL(), resolvingAgainstBaseURL: false) else {
+            throw UltimationError.invalidServerURL
+        }
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        components.path = "/api/ws"
+        guard let url = components.url else { throw UltimationError.invalidServerURL }
+        return url
+    }
+
+    /// Loads the server's current session snapshot. Native agent sessions are
+    /// refreshed explicitly because GET now serves the server-side cache.
+    func sessions(kind: AgentKind, refreshNative: Bool = false) async throws -> [AgentSession] {
         if kind == .local {
             return try await request("/local/sessions")
+        }
+        if refreshNative {
+            return try await request("/agents/\(kind.rawValue)/sessions/refresh", method: "POST")
         }
         return try await request("/agents/\(kind.rawValue)/sessions")
     }
@@ -101,6 +136,28 @@ final class UltimationClient {
     func stop(kind: AgentKind, sessionID: String) async throws {
         guard kind != .local else { return }
         let _: EmptyResponse = try await request("\(agentSessionPath(kind: kind, sessionID: sessionID))/stop", method: "POST")
+    }
+
+    func restartTerminal(sessionID: String) async throws {
+        let _: EmptyResponse = try await request(
+            "/settings/terminals/\(encodedPathComponent(sessionID))/restart",
+            method: "POST"
+        )
+    }
+
+    func releaseTerminal(sessionID: String) async throws {
+        let _: EmptyResponse = try await request(
+            "/settings/terminals/\(encodedPathComponent(sessionID))/release",
+            method: "POST"
+        )
+    }
+
+    func terminalStatus() async throws -> TerminalStatusResponse {
+        try await request("/settings/terminal-status")
+    }
+
+    func releaseAllTerminals() async throws {
+        let _: EmptyResponse = try await request("/settings/terminals/release-all", method: "POST")
     }
 
     func delete(kind: AgentKind, sessionID: String) async throws {

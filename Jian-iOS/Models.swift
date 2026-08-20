@@ -4,6 +4,7 @@ enum AgentKind: String, CaseIterable, Codable, Identifiable {
     case local
     case codex
     case hermes
+    case pi
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum AgentKind: String, CaseIterable, Codable, Identifiable {
         case .local: "Local"
         case .codex: "Codex"
         case .hermes: "Hermes"
+        case .pi: "Pi Agent"
         }
     }
 
@@ -20,6 +22,7 @@ enum AgentKind: String, CaseIterable, Codable, Identifiable {
         case .local: "terminal"
         case .codex: "terminal"
         case .hermes: "message"
+        case .pi: "terminal.fill"
         }
     }
 }
@@ -82,6 +85,99 @@ struct AuthStatus: Decodable {
 
 struct LoginResponse: Decodable {
     let username: String
+}
+
+struct QuickNoteResponse: Decodable {
+    let state: String
+    let version: Int
+}
+
+struct QuickNoteUpdate: Encodable {
+    let update: String
+}
+
+struct TerminalStatusResponse: Decodable {
+    let activePool: [TerminalStatus]
+
+    enum CodingKeys: String, CodingKey {
+        case activePool = "active_pool"
+    }
+}
+
+struct TerminalStatus: Decodable, Identifiable {
+    let id: String
+    let label: String
+    let title: String
+    let workspace: String
+    let profile: String?
+    let running: Bool
+    let busy: Bool
+    let subscribers: Int
+
+    var statusText: String {
+        running ? (busy ? "忙碌" : "空闲") : "已结束"
+    }
+}
+
+struct EnvironmentVariable: Codable, Hashable {
+    var key: String
+    var value: String
+}
+
+struct AgentSettings: Codable {
+    var codexBin: String
+    var path: String
+    var hermesHome: String
+    var hermesBin: String
+    var hermesProfiles: [String]
+    var piBin: String
+    var piAgents: [String]
+    var piArgs: [String]
+    var piEnv: [EnvironmentVariable]
+    var localProfiles: [String]
+    var codexArgs: [String]
+    var hermesArgs: [String]
+    var codexEnv: [EnvironmentVariable]
+    var hermesEnv: [EnvironmentVariable]
+    var localEnabled: Bool
+    var codexEnabled: Bool
+    var hermesEnabled: Bool
+    var piEnabled: Bool
+    var agentTogglesSet: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case codexBin = "codex_bin"
+        case path
+        case hermesHome = "hermes_home"
+        case hermesBin = "hermes_bin"
+        case hermesProfiles = "hermes_profiles"
+        case piBin = "pi_bin"
+        case piAgents = "pi_agents"
+        case piArgs = "pi_args"
+        case piEnv = "pi_env"
+        case localProfiles = "local_profiles"
+        case codexArgs = "codex_args"
+        case hermesArgs = "hermes_args"
+        case codexEnv = "codex_env"
+        case hermesEnv = "hermes_env"
+        case localEnabled = "local_enabled"
+        case codexEnabled = "codex_enabled"
+        case hermesEnabled = "hermes_enabled"
+        case piEnabled = "pi_enabled"
+        case agentTogglesSet = "agent_toggles_set"
+    }
+}
+
+struct SettingsResponse: Decodable {
+    let settings: AgentSettings
+    let availableProfiles: [String]
+    let availablePiAgents: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case settings
+        case availableProfiles = "available_profiles"
+        case availablePiAgents = "available_pi_agents"
+    }
 }
 
 struct APIErrorResponse: Decodable {

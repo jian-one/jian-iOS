@@ -4,6 +4,7 @@ struct NewSessionView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
     let kind: AgentKind
+    let onCreated: (AgentSession) -> Void
 
     @State private var workspace = "~"
     @State private var currentPath = ""
@@ -53,15 +54,24 @@ struct NewSessionView: View {
                 let recent = recentWorkspaces
                 if !recent.isEmpty {
                     Section("已有对话目录") {
-                        ForEach(recent, id: \.self) { path in
-                            Button {
-                                workspace = path
-                                Task { await browse(path) }
-                            } label: {
-                                Label(path, systemImage: "clock")
-                                    .lineLimit(1)
+                        ScrollView(.vertical, showsIndicators: true) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(recent, id: \.self) { path in
+                                    Button {
+                                        workspace = path
+                                        Task { await browse(path) }
+                                    } label: {
+                                        Label(path, systemImage: "clock")
+                                            .lineLimit(1)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.vertical, 8)
+                                }
                             }
                         }
+                        .frame(maxHeight: 3 * 44)
                     }
                 }
 
@@ -111,7 +121,7 @@ struct NewSessionView: View {
             }
             .navigationTitle("新建 \(kind.title)")
             .task {
-                await browse(workspace)
+                await browse(appModel.lastWorkspace(for: kind) ?? workspace)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -130,7 +140,7 @@ struct NewSessionView: View {
     private var recentWorkspaces: [String] {
         var seen: Set<String> = []
         return appModel.sessions
-            .filter { !$0.workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .filter { $0.kind == kind && !$0.workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted { $0.lastActivity > $1.lastActivity }
             .compactMap { session in
                 guard seen.insert(session.workspace).inserted else { return nil }
@@ -159,7 +169,8 @@ struct NewSessionView: View {
         isCreating = true
         errorMessage = ""
         do {
-            _ = try await appModel.createSession(workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines), yolo: yolo)
+            let session = try await appModel.createSession(workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines), yolo: yolo)
+            onCreated(session)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

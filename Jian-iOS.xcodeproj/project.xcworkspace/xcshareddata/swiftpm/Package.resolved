@@ -1,5 +1,5 @@
 {
-  "originHash" : "4d9d9af82f23f3c708bdd502fed3939413b4f2a95a79ae568364cc92bca1527e",
+  "originHash" : "009f0fcea4cbaf96b9b88531478156cbf1cc9eb25d981878b2558cdc350ba1e9",
   "pins" : [
     {
       "identity" : "swift-argument-parser",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "dd2fb8ac5b861e7bf617c872895e338f38165648",
         "version" : "1.15.0"
+      }
+    },
+    {
+      "identity" : "yswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/y-crdt/yswift",
+      "state" : {
+        "revision" : "8c25f088fcccfc3c428c37ac9206a297d031f1c5",
+        "version" : "0.2.1"
       }
     }
   ],
