@@ -14,8 +14,8 @@ struct SettingsView: View {
     @State private var availablePiAgents: [String] = []
     @State private var terminals: [TerminalStatus] = []
     @State private var isLoadingTerminals = false
-    @State private var terminalToRelease: TerminalStatus?
     @State private var showingReleaseAll = false
+    @State private var showingPath = false
     @State private var selectedTerminalSession: AgentSession?
 
     var body: some View {
@@ -36,7 +36,26 @@ struct SettingsView: View {
                 } else if let settingsBinding = Binding($settings) {
                     Section("Local") {
                         LabeledContent("系统用户名", value: appModel.username ?? "未知用户")
-                        LabeledContent("启动时的 PATH", value: settingsBinding.path.wrappedValue.isEmpty ? "未设置" : settingsBinding.path.wrappedValue)
+                        LabeledContent("启动时的 PATH") {
+                            let path = settingsBinding.path.wrappedValue
+                            Button {
+                                showingPath = true
+                            } label: {
+                                Text(path.isEmpty ? "未设置" : path)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: 180, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(path.isEmpty)
+                            .popover(isPresented: $showingPath, arrowEdge: .trailing) {
+                                Text(path)
+                                    .textSelection(.enabled)
+                                    .padding()
+                                    .frame(maxWidth: 320)
+                            }
+                        }
                         StringListEditor(title: "自动加载的 profile 文件", values: settingsBinding.localProfiles, fixedFirst: true, placeholder: "~/.profile")
                         saveButton("Local")
                     }
@@ -139,7 +158,7 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    terminalToRelease = terminal
+                                    Task { await release(terminal) }
                                 } label: {
                                     Label("释放", systemImage: "xmark.circle")
                                 }
@@ -188,19 +207,6 @@ struct SettingsView: View {
             .refreshable {
                 await loadSettings()
                 await loadTerminalStatus()
-            }
-            .confirmationDialog("释放这个终端？", isPresented: Binding(
-                get: { terminalToRelease != nil },
-                set: { if !$0 { terminalToRelease = nil } }
-            )) {
-                Button("释放", role: .destructive) {
-                    if let terminal = terminalToRelease {
-                        Task { await release(terminal) }
-                    }
-                }
-            } message: {
-                let title = terminalToRelease.map { $0.title.isEmpty ? $0.id : $0.title } ?? "此终端"
-                Text("“\(title)” 正在运行的命令将被中断。")
             }
             .confirmationDialog("释放全部终端？", isPresented: $showingReleaseAll) {
                 Button("释放全部", role: .destructive) {
@@ -267,7 +273,7 @@ struct SettingsView: View {
 
     private func release(_ terminal: TerminalStatus) async {
         do {
-            try await appModel.client.releaseTerminal(sessionID: terminal.id)
+            try await appModel.release(terminal)
             await loadTerminalStatus()
         } catch {
             message = error.localizedDescription
@@ -276,7 +282,7 @@ struct SettingsView: View {
 
     private func releaseAll() async {
         do {
-            try await appModel.client.releaseAllTerminals()
+            try await appModel.releaseAllTerminals()
             terminals = []
         } catch {
             message = error.localizedDescription
@@ -294,6 +300,7 @@ struct SettingsView: View {
             channel: nil,
             workspace: terminal.workspace,
             yolo: nil,
+            launchArgs: nil,
             title: terminal.title,
             status: terminal.running ? "running" : "ended",
             createdAt: nil,

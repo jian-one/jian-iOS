@@ -5,6 +5,7 @@ import SwiftUI
 struct NativeTerminalScreen: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let session: AgentSession
     @State private var socket: TerminalSocket?
     @State private var errorMessage = ""
@@ -16,7 +17,8 @@ struct NativeTerminalScreen: View {
     var body: some View {
         Group {
             if let socket {
-                NativeTerminalView(socket: socket, refreshRequest: refreshRequest, fontSize: CGFloat(fontSize))
+                NativeTerminalView(socket: socket, fontSize: CGFloat(fontSize))
+                    .id(refreshRequest)
             } else {
                 ProgressView("正在建立终端")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,6 +72,17 @@ struct NativeTerminalScreen: View {
             socket?.disconnect()
             socket = nil
         }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                socket?.reconnect()
+                refreshRequest &+= 1
+            case .inactive, .background:
+                socket?.disconnect()
+            @unknown default:
+                break
+            }
+        }
     }
 
     private var errorAlertPresented: Binding<Bool> {
@@ -112,7 +125,6 @@ struct NativeTerminalScreen: View {
 /// to the existing server Bash WebSocket.
 struct NativeTerminalView: UIViewRepresentable {
     let socket: TerminalSocket
-    let refreshRequest: Int
     let fontSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
@@ -124,28 +136,21 @@ struct NativeTerminalView: UIViewRepresentable {
         view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         view.terminalDelegate = context.coordinator
         context.coordinator.view = view
-        context.coordinator.lastRefreshRequest = refreshRequest
         socket.observeTerminal(
-            output: { [weak view] text in view?.feed(text: text) },
-            initialReplayComplete: {}
+            output: { [weak view] text in view?.receiveOutput(text) },
+            initialReplayComplete: { [weak view] in view?.finishInitialReplay() }
         )
         return view
     }
 
     func updateUIView(_ uiView: RefreshableTerminalView, context: Context) {
-        if uiView.font.pointSize != fontSize {
-            uiView.font = uiView.font.withSize(fontSize)
-        }
-        guard context.coordinator.lastRefreshRequest != refreshRequest else { return }
-        context.coordinator.lastRefreshRequest = refreshRequest
-        uiView.refreshCurrentBuffer()
+        uiView.setFontSize(fontSize)
+        _ = uiView.becomeFirstResponder()
     }
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let socket: TerminalSocket
         weak var view: TerminalView?
-        var lastRefreshRequest = 0
-
         init(socket: TerminalSocket) {
             self.socket = socket
         }
@@ -177,9 +182,85 @@ struct NativeTerminalView: UIViewRepresentable {
 }
 
 final class RefreshableTerminalView: TerminalView {
-    func refreshCurrentBuffer() {
-        // TerminalView's iOS renderer owns the visible buffer and redraws it
-        // through its normal SwiftTerm display path.
-        setNeedsDisplay(bounds)
+    private static let beginSynchronizedOutput = "\u{1b}[?2026h"
+    private static let endSynchronizedOutput = "\u{1b}[?2026l"
+    private var initialReplay = ""
+    private var hasFinishedInitialReplay = false
+    private var isCoalescingViewportUpdates = false
+    private var positionBeforeFontChange = 1.0
+    private var fontChangeDeadline: UInt64 = 0
+    private var fontChangeCompletion: DispatchWorkItem?
+
+    deinit {
+        fontChangeCompletion?.cancel()
+    }
+
+    func receiveOutput(_ text: String) {
+        guard hasFinishedInitialReplay else {
+            initialReplay.append(text)
+            return
+        }
+        feed(text: text)
+        if isCoalescingViewportUpdates {
+            scheduleFontChangeCompletion()
+        }
+    }
+
+    func finishInitialReplay() {
+        guard !hasFinishedInitialReplay else { return }
+        hasFinishedInitialReplay = true
+        isCoalescingViewportUpdates = true
+        feed(text: Self.beginSynchronizedOutput)
+        feed(text: initialReplay)
+        initialReplay.removeAll(keepingCapacity: false)
+        scroll(toPosition: 1)
+        isCoalescingViewportUpdates = false
+        feed(text: Self.endSynchronizedOutput)
+    }
+
+    func setFontSize(_ size: CGFloat) {
+        guard font.pointSize != size else { return }
+        if !isCoalescingViewportUpdates {
+            positionBeforeFontChange = scrollPosition
+        }
+        isCoalescingViewportUpdates = true
+        fontChangeDeadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        font = font.withSize(size)
+        feed(text: Self.beginSynchronizedOutput)
+        scheduleFontChangeCompletion()
+    }
+
+    override func scrolled(source terminal: Terminal, yDisp: Int) {
+        guard !isCoalescingViewportUpdates else { return }
+        super.scrolled(source: terminal, yDisp: yDisp)
+    }
+
+    override func sizeChanged(source: Terminal) {
+        guard isCoalescingViewportUpdates else {
+            super.sizeChanged(source: source)
+            return
+        }
+        let cols = source.cols
+        let rows = source.rows
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            terminalDelegate?.sizeChanged(source: self, newCols: cols, newRows: rows)
+        }
+    }
+
+    private func scheduleFontChangeCompletion() {
+        fontChangeCompletion?.cancel()
+        let completion = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            scroll(toPosition: positionBeforeFontChange)
+            isCoalescingViewportUpdates = false
+            feed(text: Self.endSynchronizedOutput)
+            fontChangeCompletion = nil
+        }
+        fontChangeCompletion = completion
+        let now = DispatchTime.now().uptimeNanoseconds
+        let remaining = fontChangeDeadline > now ? fontChangeDeadline - now : 0
+        let delay = min(250_000_000, remaining)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .nanoseconds(Int(delay)), execute: completion)
     }
 }

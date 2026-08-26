@@ -152,6 +152,29 @@ final class AppModel {
 
     func release(_ session: AgentSession) async throws {
         try await client.releaseTerminal(sessionID: session.id)
+        if session.kind == .local {
+            sessions.removeAll { $0.kind == .local && $0.id == session.id }
+            saveCachedSessions(sessions.filter { $0.kind == .local }, for: .local)
+        } else if session.kind == selectedKind {
+            await loadSessions(refreshNative: true)
+        }
+    }
+
+    func release(_ terminal: TerminalStatus) async throws {
+        try await client.releaseTerminal(sessionID: terminal.id)
+        if terminal.label == AgentKind.local.rawValue {
+            sessions.removeAll { $0.kind == .local && $0.id == terminal.id }
+            saveCachedSessions(sessions.filter { $0.kind == .local }, for: .local)
+        } else if let kind = AgentKind(rawValue: terminal.label), kind == selectedKind {
+            await loadSessions(refreshNative: true)
+        }
+    }
+
+    func releaseAllTerminals() async throws {
+        try await client.releaseAllTerminals()
+        sessions.removeAll { $0.kind == .local }
+        saveCachedSessions([], for: .local)
+        if selectedKind == .local { sessionsState = .loaded([]) }
     }
 
     func delete(_ session: AgentSession) async throws {

@@ -11,7 +11,9 @@ final class QuickNoteModel {
     private let note: YText
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
+    private var updateTask: Task<Void, Never>?
     private var pending: [String] = []
+    private var isFlushing = false
 
     var value = ""
     var errorMessage = ""
@@ -42,6 +44,17 @@ final class QuickNoteModel {
 
     func replace(_ next: String) {
         guard next != value else { return }
+        value = next
+        updateTask?.cancel()
+        updateTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self, self.value == next else { return }
+            self.updateTask = nil
+            self.commit(next)
+        }
+    }
+
+    private func commit(_ next: String) {
         // ponytail: replace-all edits, fine for a short note; add a text diff if note size becomes a problem.
         let update = document.transactSync { transaction -> [UInt8] in
             let length = self.note.length(in: transaction)
@@ -49,7 +62,6 @@ final class QuickNoteModel {
             if !next.isEmpty { self.note.insert(next, at: 0, in: transaction) }
             return transaction.transactionEncodeUpdate()
         }
-        value = next
         guard !update.isEmpty else { return }
         pending.append(encode(update))
         persist()
@@ -57,6 +69,11 @@ final class QuickNoteModel {
     }
 
     func stop() {
+        if updateTask != nil {
+            updateTask?.cancel()
+            updateTask = nil
+            commit(value)
+        }
         receiveTask?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         receiveTask = nil
@@ -64,6 +81,9 @@ final class QuickNoteModel {
     }
 
     private func flush() async {
+        guard !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
         while let update = pending.first {
             do {
                 try await client.saveQuickNote(update: update)
@@ -93,7 +113,7 @@ final class QuickNoteModel {
                       let object = try? JSONDecoder().decode(QuickNoteSocketEvent.self, from: data),
                       object.type == "quick-note.update",
                       let update = self?.decode(object.update) else { continue }
-                await self?.applyRemote(update)
+                self?.applyRemote(update)
             }
         }
     }

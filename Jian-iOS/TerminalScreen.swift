@@ -4,6 +4,7 @@ import UIKit
 struct TerminalScreen: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let session: AgentSession
     @State private var socket: TerminalSocket?
     @State private var errorMessage = ""
@@ -73,6 +74,16 @@ struct TerminalScreen: View {
         .onDisappear {
             socket?.disconnect()
             socket = nil
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                socket?.reconnect()
+            case .inactive, .background:
+                socket?.disconnect()
+            @unknown default:
+                break
+            }
         }
     }
 

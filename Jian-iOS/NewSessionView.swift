@@ -10,10 +10,10 @@ struct NewSessionView: View {
     @State private var currentPath = ""
     @State private var parentPath = ""
     @State private var entries: [WorkspaceEntry] = []
+    @State private var showHidden = false
     @State private var isBrowsing = false
     @State private var isCreating = false
     @State private var errorMessage = ""
-    @State private var yolo = false
 
     var body: some View {
         NavigationStack {
@@ -76,6 +76,11 @@ struct NewSessionView: View {
                 }
 
                 Section {
+                    Toggle("显示隐藏文件", isOn: $showHidden)
+                        .onChange(of: showHidden) { _, _ in
+                            Task { await browse(currentPath.isEmpty ? workspace : currentPath) }
+                        }
+
                     if isBrowsing {
                         HStack {
                             ProgressView()
@@ -84,7 +89,7 @@ struct NewSessionView: View {
                     } else if entries.isEmpty {
                         ContentUnavailableView("没有子目录", systemImage: "folder")
                     } else {
-                        ForEach(entries.filter(\.directory)) { entry in
+                        ForEach(entries.filter { $0.directory && (showHidden || !$0.name.hasPrefix(".")) }) { entry in
                             Button {
                                 let next = currentPath == "/" ? "/\(entry.name)" : "\(currentPath)/\(entry.name)"
                                 workspace = next
@@ -101,14 +106,6 @@ struct NewSessionView: View {
                 if kind == .hermes {
                     Section("Profile") {
                         Text(appModel.selectedProfile)
-                    }
-                }
-
-                if kind == .codex {
-                    Section {
-                        Toggle("跳过权限确认（YOLO）", isOn: $yolo)
-                    } footer: {
-                        Text("仅在你信任该服务器工作目录时启用。")
                     }
                 }
 
@@ -169,7 +166,7 @@ struct NewSessionView: View {
         isCreating = true
         errorMessage = ""
         do {
-            let session = try await appModel.createSession(workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines), yolo: yolo)
+            let session = try await appModel.createSession(workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines))
             onCreated(session)
             dismiss()
         } catch {

@@ -84,9 +84,6 @@ struct SessionsView: View {
                     selectedSession = session
                 }
             }
-            .task(id: kind) {
-                await appModel.select(kind: kind)
-            }
             .refreshable {
                 await appModel.loadSessions(refreshNative: true)
             }

@@ -36,6 +36,7 @@ struct AgentSession: Codable, Identifiable, Hashable {
     let channel: String?
     let workspace: String
     let yolo: Bool?
+    let launchArgs: [String]?
     let title: String
     let status: String
     let createdAt: Date?
@@ -50,6 +51,7 @@ struct AgentSession: Codable, Identifiable, Hashable {
         case channel
         case workspace
         case yolo
+        case launchArgs = "launch_args"
         case title
         case status
         case createdAt = "created_at"

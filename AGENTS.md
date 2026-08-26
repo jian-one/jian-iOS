@@ -8,3 +8,4 @@
   the iOS client (`Jian-iOS/`, project files, and client tests/scripts).
 - Keep client API paths, HTTP methods, request bodies, response models, and
   WebSocket paths aligned with the current server contract.
+- 本项目核心插件是SwiftTerm(https://github.com/migueldeicaza/SwiftTerm)，每次开发使用该插件时都要确认并升级到官方release的最新版。
