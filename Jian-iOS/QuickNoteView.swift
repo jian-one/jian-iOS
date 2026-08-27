@@ -165,18 +165,49 @@ private struct QuickNoteSocketEvent: Decodable {
 struct QuickNoteButton: View {
     @Environment(AppModel.self) private var appModel
     @State private var showingNote = false
+    @State private var position: CGPoint?
+    @State private var dragStartPosition: CGPoint?
+    @State private var dragged = false
+    let bounds: CGSize
+
+    private let buttonSize: CGFloat = 48
+    private let margin: CGFloat = 18
 
     var body: some View {
-        Button { showingNote = true } label: {
-            Image(systemName: "note.text")
-                .font(.title3.weight(.semibold))
-                .frame(width: 48, height: 48)
-                .background(.regularMaterial, in: Circle())
-        }
+        Image(systemName: "note.text")
+            .font(.title3.weight(.semibold))
+            .frame(width: 48, height: 48)
+            .background(.regularMaterial, in: Circle())
+            .contentShape(Circle())
+        .position(position ?? CGPoint(x: bounds.width - margin - buttonSize / 2, y: bounds.height - 72 - buttonSize / 2))
+        .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+            let start = dragStartPosition ?? currentPosition
+            dragStartPosition = start
+            dragged = dragged || abs(value.translation.width) > 3 || abs(value.translation.height) > 3
+            position = clamped(CGPoint(
+                x: start.x + value.translation.width,
+                y: start.y + value.translation.height
+            ))
+        }.onEnded { _ in
+            if !dragged { showingNote = true }
+            dragStartPosition = nil
+            dragged = false
+        })
         .accessibilityLabel("快速笔记")
         .sheet(isPresented: $showingNote) {
             QuickNoteEditor(client: appModel.client, username: appModel.username ?? "")
         }
+    }
+
+    private func clamped(_ point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, buttonSize / 2), bounds.width - buttonSize / 2),
+            y: min(max(point.y, buttonSize / 2), bounds.height - buttonSize / 2)
+        )
+    }
+
+    private var currentPosition: CGPoint {
+        position ?? CGPoint(x: bounds.width - margin - buttonSize / 2, y: bounds.height - 72 - buttonSize / 2)
     }
 }
 

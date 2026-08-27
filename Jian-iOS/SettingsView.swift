@@ -11,7 +11,6 @@ struct SettingsView: View {
     @State private var codexExpanded = true
     @State private var hermesExpanded = true
     @State private var piExpanded = true
-    @State private var availablePiAgents: [String] = []
     @State private var terminals: [TerminalStatus] = []
     @State private var isLoadingTerminals = false
     @State private var showingReleaseAll = false
@@ -104,18 +103,8 @@ struct SettingsView: View {
 
                     Section {
                         DisclosureGroup(isExpanded: $piExpanded) {
-                            TextField("PI_BIN", text: settingsBinding.piBin)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
                             EnvironmentEditor(values: settingsBinding.piEnv)
                             StringListEditor(title: "启动参数", values: settingsBinding.piArgs, placeholder: "启动参数")
-                            if !availablePiAgents.isEmpty {
-                                DisclosureGroup("显示 Pi agents") {
-                                    ForEach(availablePiAgents, id: \.self) { agent in
-                                        Text(agent)
-                                    }
-                                }
-                            }
                             saveButton("Pi Agent")
                         } label: {
                             Toggle("启用 Pi Agent", isOn: settingsBinding.piEnabled)
@@ -233,7 +222,6 @@ struct SettingsView: View {
             let response = try await appModel.client.settings()
             settings = response.settings
             availableProfiles = response.availableProfiles
-            availablePiAgents = response.availablePiAgents
             appModel.agentSettings = response.settings
             codexExpanded = response.settings.codexEnabled
             hermesExpanded = response.settings.hermesEnabled

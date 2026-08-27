@@ -11,14 +11,12 @@ struct NativeTerminalScreen: View {
     @State private var errorMessage = ""
     @State private var isRestarting = false
     @State private var isReleasing = false
-    @State private var refreshRequest = 0
     @AppStorage("terminalFontSize") private var fontSize = 12.0
 
     var body: some View {
         Group {
             if let socket {
                 NativeTerminalView(socket: socket, fontSize: CGFloat(fontSize))
-                    .id(refreshRequest)
             } else {
                 ProgressView("正在建立终端")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -29,15 +27,21 @@ struct NativeTerminalScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Stepper(value: $fontSize, in: 10...24, step: 1) {
-                        Text("字号 \(Int(fontSize))")
-                    }
+                    ControlGroup {
+                        Button("-") {
+                            fontSize = max(fontSize - 1, 10)
+                        }
+                        .disabled(fontSize <= 10)
 
-                    Button {
-                        refreshRequest &+= 1
-                    } label: {
-                        Label("刷新会话", systemImage: "arrow.clockwise")
+                        Text("字号 \(Int(fontSize))")
+                            .font(.body)
+
+                        Button("+") {
+                            fontSize = min(fontSize + 1, 24)
+                        }
+                        .disabled(fontSize >= 24)
                     }
+                    .menuActionDismissBehavior(.disabled)
 
                     Button {
                         Task { await restart() }
@@ -76,7 +80,6 @@ struct NativeTerminalScreen: View {
             switch phase {
             case .active:
                 socket?.reconnect()
-                refreshRequest &+= 1
             case .inactive, .background:
                 socket?.disconnect()
             @unknown default:
@@ -131,32 +134,73 @@ struct NativeTerminalView: UIViewRepresentable {
         Coordinator(socket: socket)
     }
 
-    func makeUIView(context: Context) -> RefreshableTerminalView {
-        let view = RefreshableTerminalView(frame: .zero)
+    func makeUIView(context: Context) -> TerminalView {
+        let view = TerminalView(frame: .zero)
         view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         view.terminalDelegate = context.coordinator
         context.coordinator.view = view
         socket.observeTerminal(
-            output: { [weak view] text in view?.receiveOutput(text) },
-            initialReplayComplete: { [weak view] in view?.finishInitialReplay() }
+            output: { [weak coordinator = context.coordinator] text in
+                coordinator?.receiveOutput(text)
+            },
+            initialReplayComplete: { [weak coordinator = context.coordinator] in
+                coordinator?.finishInitialReplay()
+            }
         )
         return view
     }
 
-    func updateUIView(_ uiView: RefreshableTerminalView, context: Context) {
-        uiView.setFontSize(fontSize)
-        _ = uiView.becomeFirstResponder()
+    func updateUIView(_ uiView: TerminalView, context: Context) {
+        guard uiView.font.pointSize != fontSize else { return }
+        uiView.font = uiView.font.withSize(fontSize)
     }
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let socket: TerminalSocket
         weak var view: TerminalView?
+        private var initialOutput = ""
+        private var initialReplayComplete = false
+        private var resizeOutput = ""
+        private var resizeOutputTask: Task<Void, Never>?
+
+        deinit {
+            resizeOutputTask?.cancel()
+        }
         init(socket: TerminalSocket) {
             self.socket = socket
         }
 
+        func receiveOutput(_ text: String) {
+            guard initialReplayComplete else {
+                initialOutput += text
+                return
+            }
+            if resizeOutputTask != nil {
+                resizeOutput += text
+                return
+            }
+            view?.feed(text: text)
+        }
+
+        func finishInitialReplay() {
+            guard !initialReplayComplete else { return }
+            initialReplayComplete = true
+            guard !initialOutput.isEmpty else { return }
+            view?.feed(text: "\u{1B}[?2026h" + initialOutput + "\u{1B}[?2026l")
+            initialOutput.removeAll(keepingCapacity: false)
+        }
+
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             socket.sendResize(cols: newCols, rows: newRows)
+            resizeOutputTask?.cancel()
+            resizeOutputTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.resizeOutputTask = nil
+                guard !self.resizeOutput.isEmpty else { return }
+                self.view?.feed(text: "\u{1B}[?2026h" + self.resizeOutput + "\u{1B}[?2026l")
+                self.resizeOutput.removeAll(keepingCapacity: false)
+            }
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {}
@@ -178,89 +222,5 @@ struct NativeTerminalView: UIViewRepresentable {
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-    }
-}
-
-final class RefreshableTerminalView: TerminalView {
-    private static let beginSynchronizedOutput = "\u{1b}[?2026h"
-    private static let endSynchronizedOutput = "\u{1b}[?2026l"
-    private var initialReplay = ""
-    private var hasFinishedInitialReplay = false
-    private var isCoalescingViewportUpdates = false
-    private var positionBeforeFontChange = 1.0
-    private var fontChangeDeadline: UInt64 = 0
-    private var fontChangeCompletion: DispatchWorkItem?
-
-    deinit {
-        fontChangeCompletion?.cancel()
-    }
-
-    func receiveOutput(_ text: String) {
-        guard hasFinishedInitialReplay else {
-            initialReplay.append(text)
-            return
-        }
-        feed(text: text)
-        if isCoalescingViewportUpdates {
-            scheduleFontChangeCompletion()
-        }
-    }
-
-    func finishInitialReplay() {
-        guard !hasFinishedInitialReplay else { return }
-        hasFinishedInitialReplay = true
-        isCoalescingViewportUpdates = true
-        feed(text: Self.beginSynchronizedOutput)
-        feed(text: initialReplay)
-        initialReplay.removeAll(keepingCapacity: false)
-        scroll(toPosition: 1)
-        isCoalescingViewportUpdates = false
-        feed(text: Self.endSynchronizedOutput)
-    }
-
-    func setFontSize(_ size: CGFloat) {
-        guard font.pointSize != size else { return }
-        if !isCoalescingViewportUpdates {
-            positionBeforeFontChange = scrollPosition
-        }
-        isCoalescingViewportUpdates = true
-        fontChangeDeadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
-        font = font.withSize(size)
-        feed(text: Self.beginSynchronizedOutput)
-        scheduleFontChangeCompletion()
-    }
-
-    override func scrolled(source terminal: Terminal, yDisp: Int) {
-        guard !isCoalescingViewportUpdates else { return }
-        super.scrolled(source: terminal, yDisp: yDisp)
-    }
-
-    override func sizeChanged(source: Terminal) {
-        guard isCoalescingViewportUpdates else {
-            super.sizeChanged(source: source)
-            return
-        }
-        let cols = source.cols
-        let rows = source.rows
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            terminalDelegate?.sizeChanged(source: self, newCols: cols, newRows: rows)
-        }
-    }
-
-    private func scheduleFontChangeCompletion() {
-        fontChangeCompletion?.cancel()
-        let completion = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            scroll(toPosition: positionBeforeFontChange)
-            isCoalescingViewportUpdates = false
-            feed(text: Self.endSynchronizedOutput)
-            fontChangeCompletion = nil
-        }
-        fontChangeCompletion = completion
-        let now = DispatchTime.now().uptimeNanoseconds
-        let remaining = fontChangeDeadline > now ? fontChangeDeadline - now : 0
-        let delay = min(250_000_000, remaining)
-        DispatchQueue.main.asyncAfter(deadline: .now() + .nanoseconds(Int(delay)), execute: completion)
     }
 }

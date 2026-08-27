@@ -14,6 +14,7 @@ struct NewSessionView: View {
     @State private var isBrowsing = false
     @State private var isCreating = false
     @State private var errorMessage = ""
+    @State private var launchArgs = ""
 
     var body: some View {
         NavigationStack {
@@ -109,6 +110,14 @@ struct NewSessionView: View {
                     }
                 }
 
+                if kind == .codex {
+                    Section("启动参数") {
+                        TextField("例如 --model gpt-5", text: $launchArgs, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                }
+
                 if !errorMessage.isEmpty {
                     Section {
                         Text(errorMessage)
@@ -166,7 +175,10 @@ struct NewSessionView: View {
         isCreating = true
         errorMessage = ""
         do {
-            let session = try await appModel.createSession(workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines))
+            let session = try await appModel.createSession(
+                workspace: workspace.trimmingCharacters(in: .whitespacesAndNewlines),
+                launchArgs: kind == .codex ? launchArgs.split(whereSeparator: { $0.isWhitespace }).map(String.init) : nil
+            )
             onCreated(session)
             dismiss()
         } catch {

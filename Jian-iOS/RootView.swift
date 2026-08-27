@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -20,6 +21,9 @@ struct RootView: View {
         }
         .task {
             await appModel.bootstrap()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, appModel.isAuthenticated { Task { await appModel.bootstrap() } }
         }
     }
 }
@@ -81,8 +85,10 @@ struct MainTabsView: View {
         .onChange(of: appModel.isEnabled(.pi)) { _, enabled in
             if !enabled, selectedTab == .pi { selectedTab = .local }
         }
-        .overlay(alignment: .bottomTrailing) {
-            QuickNoteButton().padding(.trailing, 18).padding(.bottom, 72)
+        .overlay {
+            GeometryReader { proxy in
+                QuickNoteButton(bounds: proxy.size)
+            }
         }
     }
 }

@@ -132,8 +132,6 @@ struct AgentSettings: Codable {
     var hermesHome: String
     var hermesBin: String
     var hermesProfiles: [String]
-    var piBin: String
-    var piAgents: [String]
     var piArgs: [String]
     var piEnv: [EnvironmentVariable]
     var localProfiles: [String]
@@ -153,8 +151,6 @@ struct AgentSettings: Codable {
         case hermesHome = "hermes_home"
         case hermesBin = "hermes_bin"
         case hermesProfiles = "hermes_profiles"
-        case piBin = "pi_bin"
-        case piAgents = "pi_agents"
         case piArgs = "pi_args"
         case piEnv = "pi_env"
         case localProfiles = "local_profiles"
@@ -173,12 +169,9 @@ struct AgentSettings: Codable {
 struct SettingsResponse: Decodable {
     let settings: AgentSettings
     let availableProfiles: [String]
-    let availablePiAgents: [String]
-
     enum CodingKeys: String, CodingKey {
         case settings
         case availableProfiles = "available_profiles"
-        case availablePiAgents = "available_pi_agents"
     }
 }
 

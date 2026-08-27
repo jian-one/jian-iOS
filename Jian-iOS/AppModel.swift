@@ -47,6 +47,7 @@ final class AppModel {
         do {
             let status = try await client.authStatus()
             username = status.authenticated ? status.username : nil
+            if username == nil { client.clearCookies() }
             authState = .loaded(username)
             if username != nil {
                 await loadAgentSettings()
@@ -125,8 +126,8 @@ final class AppModel {
         }
     }
 
-    func createSession(workspace: String, yolo: Bool = false) async throws -> AgentSession {
-        let session = try await client.createSession(kind: selectedKind, workspace: workspace, profile: selectedProfile, yolo: yolo)
+    func createSession(workspace: String, yolo: Bool = false, launchArgs: [String]? = nil) async throws -> AgentSession {
+        let session = try await client.createSession(kind: selectedKind, workspace: workspace, profile: selectedProfile, yolo: yolo, launchArgs: launchArgs)
         upsert(session)
         saveCachedSessions(sessions.filter { $0.kind == session.kind }, for: session.kind)
         rememberWorkspace(session.workspace, for: session.kind)

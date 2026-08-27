@@ -22,6 +22,12 @@ struct NewSessionRequest: Encodable {
     let workspace: String
     let profile: String?
     let yolo: Bool?
+    let launchArgs: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case workspace, profile, yolo
+        case launchArgs = "launch_args"
+    }
 }
 
 @MainActor
@@ -112,14 +118,14 @@ final class UltimationClient {
         return try await request("/agents/\(kind.rawValue)/sessions")
     }
 
-    func createSession(kind: AgentKind, workspace: String, profile: String?, yolo: Bool = false) async throws -> AgentSession {
+    func createSession(kind: AgentKind, workspace: String, profile: String?, yolo: Bool = false, launchArgs: [String]? = nil) async throws -> AgentSession {
         if kind == .local {
-            return try await request("/local/sessions", method: "POST", body: NewSessionRequest(workspace: workspace, profile: nil, yolo: nil))
+            return try await request("/local/sessions", method: "POST", body: NewSessionRequest(workspace: workspace, profile: nil, yolo: nil, launchArgs: nil))
         }
         return try await request(
             "/agents/\(kind.rawValue)/sessions",
             method: "POST",
-            body: NewSessionRequest(workspace: workspace, profile: kind == .hermes ? profile : nil, yolo: kind == .codex ? yolo : nil)
+            body: NewSessionRequest(workspace: workspace, profile: kind == .hermes ? profile : nil, yolo: kind == .codex ? yolo : nil, launchArgs: launchArgs)
         )
     }
 

@@ -135,7 +135,7 @@ struct SessionRow: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
-                StatusBadge(status: session.status)
+                StatusBadge(status: session.status, kind: session.kind)
             }
             Text(session.workspace.isEmpty ? "未知工作区" : session.workspace)
                 .font(.subheadline)
@@ -156,6 +156,7 @@ struct SessionRow: View {
 
 struct StatusBadge: View {
     let status: String
+    let kind: AgentKind
 
     var body: some View {
         Text(label)
@@ -167,7 +168,7 @@ struct StatusBadge: View {
     }
 
     private var label: String {
-        let normalized = status.lowercased()
+        let normalized = kind == .local && status.lowercased() == "idle" ? "running" : status.lowercased()
         if normalized == "running" { return "运行中" }
         if normalized == "ended" { return "已结束" }
         if normalized == "idle" { return "待启动" }
@@ -175,7 +176,7 @@ struct StatusBadge: View {
     }
 
     private var color: Color {
-        let normalized = status.lowercased()
+        let normalized = kind == .local && status.lowercased() == "idle" ? "running" : status.lowercased()
         if normalized == "running" { return .green }
         if normalized == "ended" { return .secondary }
         return .orange
