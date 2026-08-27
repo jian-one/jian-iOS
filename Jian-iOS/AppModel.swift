@@ -48,12 +48,12 @@ final class AppModel {
             let status = try await client.authStatus()
             username = status.authenticated ? status.username : nil
             if username == nil { client.clearCookies() }
-            authState = .loaded(username)
             if username != nil {
                 await loadAgentSettings()
                 await loadProfilesIfNeeded()
                 await loadSessions()
             }
+            authState = .loaded(username)
         } catch {
             username = nil
             authState = .loaded(nil)
@@ -63,10 +63,10 @@ final class AppModel {
     func login(username: String, password: String) async throws {
         let response = try await client.login(username: username, password: password)
         self.username = response.username
-        authState = .loaded(response.username)
-        await loadProfilesIfNeeded()
         await loadAgentSettings()
+        await loadProfilesIfNeeded()
         await loadSessions()
+        authState = .loaded(response.username)
     }
 
     func logout() async {
@@ -78,6 +78,7 @@ final class AppModel {
     }
 
     func select(kind: AgentKind) async {
+        guard kind == .local || isEnabled(kind) else { return }
         selectedKind = kind
         if kind == .hermes {
             await loadProfilesIfNeeded()
@@ -89,7 +90,10 @@ final class AppModel {
     }
 
     func loadProfilesIfNeeded() async {
-        guard username != nil else { return }
+        guard username != nil, isEnabled(.hermes) else {
+            profiles = ["default"]
+            return
+        }
         do {
             let loaded = try await client.profiles()
             profiles = loaded.isEmpty ? ["default"] : loaded
@@ -210,9 +214,9 @@ final class AppModel {
     func isEnabled(_ kind: AgentKind) -> Bool {
         switch kind {
         case .local: true
-        case .codex: agentSettings?.codexEnabled ?? true
-        case .hermes: agentSettings?.hermesEnabled ?? true
-        case .pi: agentSettings?.piEnabled ?? true
+        case .codex: agentSettings?.codexEnabled ?? false
+        case .hermes: agentSettings?.hermesEnabled ?? false
+        case .pi: agentSettings?.piEnabled ?? false
         }
     }
 

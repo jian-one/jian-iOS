@@ -2,7 +2,6 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -21,9 +20,6 @@ struct RootView: View {
         }
         .task {
             await appModel.bootstrap()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active, appModel.isAuthenticated { Task { await appModel.bootstrap() } }
         }
     }
 }
@@ -59,6 +55,9 @@ struct MainTabsView: View {
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(AppTab.settings)
+        }
+        .task {
+            await appModel.select(kind: .local)
         }
         .onChange(of: selectedTab) { _, value in
             Task {
